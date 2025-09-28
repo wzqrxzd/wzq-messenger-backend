@@ -2,15 +2,27 @@ cmake_minimum_required(VERSION 3.14)
 project(wzq-message-server)
 
 set(CMAKE_CXX_STANDART 23)
+set(LIBS ${CMAKE_SOURCE_DIR}/libs)
 set(CMAKE_CXX_STANDART_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
 
+include(FetchContent)
+FetchContent_Declare(
+  json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.2 # or latest release
+)
+FetchContent_MakeAvailable(json)
+
 find_package(spdlog REQUIRED)
+find_package(PostgreSQL REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_library(ARGON2_LIB argon2)
 
 add_executable(wzq-message-server
   server.cxx
 )
 
-target_include_directories(wzq-message-server PRIVATE ${CMAKE_SOURCE_DIR}/crow/include/)
+target_include_directories(wzq-message-server PRIVATE ${LIBS}/crow/include/ ${LIBS}/jwt-cpp/include/ ${PostgreSQL_INCLUDE_DIRS})
 
-target_link_libraries(wzq-message-server PRIVATE spdlog fmt)
+target_link_libraries(wzq-message-server PRIVATE spdlog fmt pqxx ${ARGON2_LIB} nlohmann_json OpenSSL::SSL OpenSSL::Crypto ${PostgreSQL_LIBRARIES})
