@@ -21,6 +21,8 @@ find_library(ARGON2_LIB argon2)
 
 add_executable(wzq-message-server
   server.cxx
+  jwt_utils.cxx
+  env_utils.cxx
 )
 
 target_include_directories(wzq-message-server PRIVATE ${LIBS}/crow/include/ ${LIBS}/jwt-cpp/include/ ${PostgreSQL_INCLUDE_DIRS})

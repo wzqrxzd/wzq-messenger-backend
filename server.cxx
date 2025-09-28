@@ -4,48 +4,17 @@
 #include "jwt-cpp/jwt.h"
 #include <nlohmann/json.hpp>
 #include <argon2.h>
+#include "jwt_utils.hxx"
+#include "env_utils.hxx"
 
 #include "server.hxx"
 
-void loadEnvFile(const std::string& filename = ".env") {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        std::cerr << "⚠ Не удалось открыть файл " << filename << std::endl;
-        return;
-    }
-
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#') continue;
-
-        size_t equalPos = line.find('=');
-        if (equalPos == std::string::npos) continue;
-
-        std::string key = line.substr(0, equalPos);
-        std::string value = line.substr(equalPos + 1);
-
-        if (!key.empty() && !value.empty()) {
-            setenv(key.c_str(), value.c_str(), 1);
-        }
-    }
-}
-
-std::string getEnvVar(const char* key) {
-    const char* value = std::getenv(key);
-    if (!value) {
-        throw std::runtime_error(std::string("Missing environment variable: ") + key);
-    }
-    return value;
-}
-
-
-
 Server::Server() {
-  loadEnvFile();
-  secret = getEnvVar("JWT_SECRET");
-  dbname = getEnvVar("DB_NAME");
-  dbuser = getEnvVar("DB_USER");
-  dbpass = getEnvVar("DB_PASS"); 
+  env_utils::loadEnvFile();
+  secret = env_utils::getEnvVar("JWT_SECRET");
+  dbname = env_utils::getEnvVar("DB_NAME");
+  dbuser = env_utils::getEnvVar("DB_USER");
+  dbpass = env_utils::getEnvVar("DB_PASS"); 
 
   connectionString =
       "dbname=" + dbname +
@@ -57,12 +26,12 @@ Server::Server() {
 
 pqxx::connection Server::connectDb()
 {
-  std::string connectionString = R"(dbname=wzq_messenger_db user=debian password="j=8wWKk.GnkT7&6[@%3rnEG1xlRTXk_KEhF|}D9WW,<^.PLB\)";
   try {
     auto x = pqxx::connection(connectionString.c_str());
     return x;
   } catch (const pqxx::broken_connection& e) {
     spdlog::error("{}", e.what());
+    exit(1);
   }
 }
 
@@ -90,32 +59,6 @@ bool Server::verifyPassword(const std::string& hash, const std::string& password
 {
   return argon2i_verify(hash.c_str(), password.c_str(), password.size()) == ARGON2_OK;
 }
-
-bool Server::verifyJWT(const std::string& token)
-{
-  try {
-    auto decoded = jwt::decode(token);
-    jwt::verify()
-        .allow_algorithm(jwt::algorithm::hs256(this->secret))
-        .with_issuer("wzq_server")
-        .verify(decoded);
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
-
-std::string Server::generateJWT(const std::string& username)
-{
-  auto token = jwt::create()
-                .set_issuer("wzq_server")
-                .set_type("JWT")
-                .set_payload_claim("user", jwt::claim(username))
-                .set_expires_at(std::chrono::system_clock::now() + std::chrono::minutes(60))
-                .sign(jwt::algorithm::hs256{this->secret});
-  return token;
-}
-
 
 void Server::setup_routes()
 {
@@ -152,7 +95,7 @@ void Server::setup_routes()
         return crow::response("{\"status\":\"user already exists\"}");
       }
 
-      auto token = generateJWT(username);
+      auto token = jwt_utils::generateJWT(username, this->secret);
       spdlog::info("hash password: {}", hashPassword(password));
 
       return crow::response{std::string("{\"token\":\"") + token + "\"}"};
@@ -182,7 +125,7 @@ void Server::setup_routes()
       if (!verifyPassword(storedHash, password))
         return crow::response{401, "{\"error\":\"unauthorized\"}"};
 
-      std::string token = generateJWT(username);
+      std::string token = jwt_utils::generateJWT(username, this->secret);
       return crow::response{std::string("{\"token\":\"") + token + "\"}"};
     } catch (...) {
       return crow::response(400, "{\"status\":\"bad_request\"}");
@@ -196,7 +139,7 @@ void Server::setup_routes()
 
     std::string token = authHeader.substr(7);
 
-    if (!verifyJWT(token))
+    if (!jwt_utils::verifyJWT(token, this->secret))
       return crow::response(400, "{\"error\":\"token expired\"}");     
 
     return crow::response("{\"status\":\"token_valid\"}");
