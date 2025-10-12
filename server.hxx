@@ -3,6 +3,8 @@
 
 #include "crow.h"
 #include <pqxx/pqxx>
+#include <functional>
+#include <unordered_set>
 
 class Server
 {
@@ -11,12 +13,25 @@ class Server
   private:
     void setupRoutes();
 
+    using dbConnection = std::shared_ptr<pqxx::connection>;
+
     std::string hashPassword(const std::string& password);
     bool authorize(const crow::request& req);
     bool verifyPassword(const std::string& hash, const std::string& password);
 
+    void registerRoute(dbConnection DB);
+    void loginRoute(dbConnection DB);
+    void protectedRoute();
+    void createChatRoute(dbConnection DB);
+    void sendMessageRoute(dbConnection DB);
+    void deleteMessageRoute(dbConnection DB);
+    void deleteChatRoute(dbConnection DB);
+    void insertChatMemberRoute(dbConnection DB);
+    void chatsRoute(dbConnection DB);
+    void chatMessagesRoute(dbConnection DB);
+
     pqxx::connection connectDB();
-    std::shared_ptr<pqxx::connection> prepareDB();
+    dbConnection prepareDB();
 
     crow::SimpleApp app;
 

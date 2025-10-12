@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:17
+    container_name: wzq-db
+    env_file: .env
+    volumes:
+      - ./wzqdb.sql:/docker-entrypoint-initdb.d/wzqdb.sql:ro
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  server:
+    build: .
+    command: ./build/wzq-message-server 
+    container_name: wzq-server
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    ports:
+      - "8080:8080"
+
+volumes:
+  db_data:

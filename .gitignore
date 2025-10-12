@@ -2,3 +2,5 @@ build/
 libs/
 .cache/
 .env
+compile_commands.json
+wzqdb.sql
