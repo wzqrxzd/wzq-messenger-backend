@@ -20,21 +20,23 @@ Server::Server() {
   "dbname=" + dbname +
   " user=" + dbuser +
   " password=" + dbpass +
-  " host=db";
+  " host=db port=5432";
 
   setupRoutes();
+}
+
+void Server::run() {
   app.port(port).multithreaded().run();
 }
 
 
-pqxx::connection Server::connectDB()
+Server::dbConnection Server::connectDB()
 {
   try {
-    auto x = pqxx::connection(connectionString.c_str());
-    return x;
+    return std::make_shared<pqxx::connection>(connectionString.c_str());
   } catch (const pqxx::broken_connection& e) {
-    spdlog::error("{}", e.what());
-    exit(1);
+    spdlog::error("DB connection error: {}", e.what());
+    throw std::runtime_error("error during connection to db");
   }
 }
 
@@ -77,9 +79,9 @@ bool Server::authorize(const crow::request& req)
   return true;
 }
 
-std::shared_ptr<pqxx::connection> Server::prepareDB()
+Server::dbConnection Server::prepareDB()
 {
-  auto DB_ptr = std::make_shared<pqxx::connection>(connectDB());
+  auto DB_ptr = connectDB();
   DB_ptr->prepare("insert_user", "INSERT INTO users(username, password_hash) VALUES($1, $2)");
   DB_ptr->prepare("find_user", "SELECT password_hash FROM users WHERE username=$1");
 
@@ -154,5 +156,6 @@ void Server::setupRoutes()
   
 int main() {
   Server m;
+  m.run();
 }
 

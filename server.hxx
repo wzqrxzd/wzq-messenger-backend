@@ -10,6 +10,7 @@ class Server
 {
   public:
     Server();
+    void run();
   private:
     void setupRoutes();
 
@@ -30,7 +31,7 @@ class Server
     void chatsRoute(dbConnection DB);
     void chatMessagesRoute(dbConnection DB);
 
-    pqxx::connection connectDB();
+    dbConnection connectDB();
     dbConnection prepareDB();
 
     crow::SimpleApp app;
