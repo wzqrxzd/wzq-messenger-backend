@@ -1,11 +1,92 @@
 #include "server.hxx"
 #include "jwt_utils.hxx"
+#include <set>
 #include <spdlog/spdlog.h>
 #include <libpq-fe.h>
 #include <nlohmann/json.hpp>
 #include <format>
 #include "utils.hxx"
 
+
+struct WsClient {
+    crow::websocket::connection* conn;
+    int userId;
+    std::set<int> chatIds;
+};
+
+std::mutex wsMutex;
+std::set<std::shared_ptr<WsClient>> wsClients;
+
+// Отправка сообщения всем клиентам в чате
+void sendMessageToChat(int chatId, const std::string& message)
+{
+    std::lock_guard<std::mutex> lock(wsMutex);
+    spdlog::info("cahtId {} message {}", chatId, message);
+    for (auto& client : wsClients) {
+        if (client->chatIds.count(chatId)) {
+            client->conn->send_text(message);
+        }
+    }
+}
+
+void Server::webSocketMessageRoute(dbConnection DB) {
+    CROW_ROUTE(app, "/ws")
+    .websocket(&this->app)
+    .onopen([](crow::websocket::connection& conn) {
+    })
+    .onclose([](crow::websocket::connection& conn, const std::string& reason, uint16_t code) {
+        std::lock_guard<std::mutex> lock(wsMutex);
+        for (auto it = wsClients.begin(); it != wsClients.end(); ) {
+            if ((*it)->conn == &conn) {
+                it = wsClients.erase(it); // erase вернёт следующий итератор
+            } else {
+                ++it;
+            }
+        }
+        spdlog::info("[WebSocket] Closed: {} (code {})", reason, code);
+    })
+    .onmessage([DB](crow::websocket::connection& conn, const std::string& msg, bool /*is_binary*/) {
+        try {
+            auto data = nlohmann::json::parse(msg);
+            if (data.contains("token")) {
+                std::string token = data["token"];
+                std::string username = jwt_utils::getUsernameFromToken(token);
+                spdlog::info("{} \n {}", token, username);
+
+                pqxx::work W(*DB);
+                pqxx::result R_user = W.exec_prepared("find_user_by_username", username);
+                if (R_user.empty()) {
+                    spdlog::warn("[WS] User not found in DB: {}", username);
+                    conn.send_text(R"({"error":"user_not_found"})");
+                    conn.close("auth failed");
+                    return;
+                }
+
+                int userId = R_user[0]["id"].as<int>();
+                spdlog::info("[WS] userId={}", userId);
+
+                pqxx::result R_chats = W.exec_prepared("get_user_chats", userId);
+                std::set<int> chatIds;
+                for (auto row : R_chats) {
+                    int chatId = row["id"].as<int>();
+                    chatIds.insert(chatId);
+                    spdlog::info("[WS] chatId loaded: {}", chatId);
+                }
+
+                auto client = std::make_shared<WsClient>(WsClient{&conn, userId, chatIds});
+                {
+                    std::lock_guard<std::mutex> lock(wsMutex);
+                    wsClients.insert(client);
+                }
+
+                conn.send_text(R"({"status":"ws_auth_ok"})");
+            }
+        } catch (...) {
+            conn.send_text(R"({"error":"ws_auth_failed"})");
+            conn.close("auth failed");
+        }
+    });
+}
 
 void Server::registerRoute(dbConnection DB)
 {
@@ -116,6 +197,23 @@ void Server::createChatRoute(dbConnection DB)
       W.exec_prepared("insert_chat_member", chat_id, user_id);
       W.commit();
 
+      nlohmann::json notify = {
+          {"type", "new_chat"},
+          {"chat_id", chat_id},
+          {"chat_name", chat_name}
+      };
+
+      {
+          std::lock_guard<std::mutex> lock(wsMutex);
+          for (auto& client : wsClients) {
+              if (client->userId == user_id) {
+                  client->chatIds.insert(chat_id);
+                  client->conn->send_text(notify.dump());
+                  spdlog::info("[WS] Sent new_chat notify to userId={} chatId={}", user_id, chat_id);
+              }
+          }
+      }
+
       return json_response(200, fmt::format(R"({{"chat_id":"{}"}})", std::to_string(chat_id)));
     } catch (const std::exception& e) {
       spdlog::info("DB error: {}", e.what());
@@ -144,10 +242,23 @@ void Server::sendMessageRoute(dbConnection DB)
     pqxx::result R_user = W.exec_prepared("find_user_by_username", username);
     int user_id = R_user[0]["id"].as<int>();
 
+    pqxx::result R = W.exec_prepared("check_user_in_chat", chat_id, user_id);
+
+    if (R.empty())
+      return json_response(403, R"({"error":"user_not_in_the_chat"})");
+
     pqxx::result R_msg = W.exec_prepared("insert_message", chat_id, user_id, content);
     int message_id = R_msg[0]["id"].as<int>();
 
     W.commit();
+    nlohmann::json notify_json = {
+        {"type", "new_message"},
+        {"chat_id", chat_id},
+        {"message_id", message_id},
+        {"sender_id", user_id},
+        {"content", content}
+    };
+    sendMessageToChat(chat_id, notify_json.dump());
     spdlog::info("messageId = {}", message_id);
     return json_response(200, fmt::format(R"({{"status":"message_sent","message_id":"{}"}})", std::to_string(message_id)));
   });
@@ -170,6 +281,7 @@ void Server::deleteMessageRoute(dbConnection DB)
 
     try {
       pqxx::work W(*DB);
+
       pqxx::result R_request_user = W.exec_prepared("find_user_by_username", username);
       pqxx::result R_user_message = W.exec_prepared("find_user_by_message", message_id);
       int userId = R_request_user[0]["id"].as<int>();
@@ -183,6 +295,7 @@ void Server::deleteMessageRoute(dbConnection DB)
       W.exec_prepared("delete_message", message_id);
 
       W.commit();
+
       return json_response(200, fmt::format(R"({{"status":"deleted","message_id":"{}"}})",std::to_string(message_id)));
     } catch (const std::exception& e) {
       spdlog::info("DB error: {}", e.what());
@@ -218,6 +331,21 @@ void Server::deleteChatRoute(dbConnection DB)
 
       W.commit();
 
+      nlohmann::json notify = {
+          {"type", "delete_chat"},
+          {"chat_id", chatId}
+      };
+
+      {
+          std::lock_guard<std::mutex> lock(wsMutex);
+          for (auto& client : wsClients) {
+              if (client->userId == userId) {
+                  client->chatIds.erase(chatId);
+                  client->conn->send_text(notify.dump());
+                  spdlog::info("[WS] Sent delete_chat notify to userId={} chatId={}", userId, chatId);
+              }
+          }
+      }
       return json_response(200, R"({"status":"chat_deleted"})");
     } catch (const std::exception& e) {
         spdlog::info("DB error: {}", e.what());

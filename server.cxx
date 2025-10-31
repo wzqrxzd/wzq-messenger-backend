@@ -173,6 +173,7 @@ void Server::setupRoutes()
   insertChatMemberRoute(DB);
   chatsRoute(DB);
   chatMessagesRoute(DB);
+  webSocketMessageRoute(DB);
 }
   
 int main() {
