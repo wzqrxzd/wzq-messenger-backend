@@ -6,7 +6,6 @@
 #include <argon2.h>
 #include "jwt_utils.hxx"
 #include "env_utils.hxx"
-
 #include "server.hxx"
 
 Server::Server() {
@@ -22,6 +21,18 @@ Server::Server() {
   " password=" + dbpass +
   " host=db port=5432";
 
+  auto& cors = app.get_middleware<crow::CORSHandler>();
+  cors.global()
+    .origin("*")
+    .methods(
+        crow::HTTPMethod::Get,
+        crow::HTTPMethod::Post,
+        crow::HTTPMethod::Put,
+        crow::HTTPMethod::Delete,
+        crow::HTTPMethod::Options
+    )
+    .headers("Content-Type, Authorization")
+    .allow_credentials();
   setupRoutes();
 }
 
@@ -43,7 +54,16 @@ Server::dbConnection Server::connectDB()
 std::string Server::hashPassword(const std::string& password)
 {
   char hash[128];
-  std::string salt = "random_salt_16";
+  uint8_t salt[16];
+  memset(salt, 0x00, 16);
+
+  auto saltGen = [](uint8_t* salt){
+    std::random_device rd;
+    for (int i{0}; i<16; i++)
+    {
+      *(salt+i) = static_cast<uint8_t>(rd() & 0xFF);
+    }
+  };
 
   argon2i_hash_encoded(
   2,              // t_cost
@@ -51,8 +71,8 @@ std::string Server::hashPassword(const std::string& password)
         1,              // parallelism
         password.c_str(),
         password.size(),
-        salt.c_str(),   // соль не nullptr
-        salt.size(),
+        salt,   // соль не nullptr
+        16,
         32,             // hashlen (например 32 байта)
         hash,
         sizeof(hash)
@@ -72,6 +92,7 @@ bool Server::authorize(const crow::request& req)
     return false;
 
   std::string token = authHeader.substr(7);
+  spdlog::info("{}", token);
 
   if (!jwt_utils::verifyJWT(token, secret))
     return false;

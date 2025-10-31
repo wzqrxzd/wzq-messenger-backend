@@ -2,6 +2,7 @@
 #define SERVER_HXX
 
 #include "crow.h"
+#include "crow/middlewares/cors.h"
 #include <pqxx/pqxx>
 #include <functional>
 #include <unordered_set>
@@ -30,11 +31,12 @@ class Server
     void insertChatMemberRoute(dbConnection DB);
     void chatsRoute(dbConnection DB);
     void chatMessagesRoute(dbConnection DB);
+    void webSocketMessageRoute(dbConnection DB);
 
     dbConnection connectDB();
     dbConnection prepareDB();
 
-    crow::SimpleApp app;
+    crow::App<crow::CORSHandler> app;
 
     const int port{8080};
 
