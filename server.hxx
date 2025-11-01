@@ -2,6 +2,7 @@
 #define SERVER_HXX
 
 #include "crow.h"
+#include "database.hxx"
 #include "crow/middlewares/cors.h"
 #include <pqxx/pqxx>
 #include <functional>
@@ -15,36 +16,28 @@ class Server
   private:
     void setupRoutes();
 
-    using dbConnection = std::shared_ptr<pqxx::connection>;
-
     std::string hashPassword(const std::string& password);
     bool authorize(const crow::request& req);
     bool verifyPassword(const std::string& hash, const std::string& password);
 
-    void registerRoute(dbConnection DB);
-    void loginRoute(dbConnection DB);
+    void registerRoute();
+    void loginRoute();
     void protectedRoute();
-    void createChatRoute(dbConnection DB);
-    void sendMessageRoute(dbConnection DB);
-    void deleteMessageRoute(dbConnection DB);
-    void deleteChatRoute(dbConnection DB);
-    void insertChatMemberRoute(dbConnection DB);
-    void chatsRoute(dbConnection DB);
-    void chatMessagesRoute(dbConnection DB);
-    void webSocketMessageRoute(dbConnection DB);
-
-    dbConnection connectDB();
-    dbConnection prepareDB();
+    void createChatRoute();
+    void sendMessageRoute();
+    void deleteMessageRoute();
+    void deleteChatRoute();
+    void insertChatMemberRoute();
+    void chatsRoute();
+    void chatMessagesRoute();
+    void webSocketMessageRoute();
 
     crow::App<crow::CORSHandler> app;
+    DatabaseHandler dbHandle;
 
     const int port{8080};
 
-    std::string secret;
-    std::string dbname;
-    std::string dbuser;
-    std::string dbpass;
-    std::string connectionString;
+    const std::string secret;
 };
 
 #endif

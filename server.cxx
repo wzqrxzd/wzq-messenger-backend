@@ -8,19 +8,15 @@
 #include "env_utils.hxx"
 #include "server.hxx"
 
-Server::Server() {
-  env_utils::loadEnvFile();
-  secret = env_utils::getEnvVar("JWT_SECRET");
-  dbname = env_utils::getEnvVar("POSTGRES_DB");
-  dbuser = env_utils::getEnvVar("POSTGRES_USER");
-  dbpass = env_utils::getEnvVar("POSTGRES_PASSWORD"); 
-
-  connectionString =
-  "dbname=" + dbname +
-  " user=" + dbuser +
-  " password=" + dbpass +
-  " host=db port=5432";
-
+Server::Server() :
+  dbHandle(
+    env_utils::getEnvVar("POSTGRES_USER"),
+    env_utils::getEnvVar("POSTGRES_DB"),
+    env_utils::getEnvVar("POSTGRES_PASSWORD"),
+    4
+  ),
+  secret(env_utils::getEnvVar("JWT_SECRET"))
+{
   auto& cors = app.get_middleware<crow::CORSHandler>();
   cors.global()
     .origin("*")
@@ -38,17 +34,6 @@ Server::Server() {
 
 void Server::run() {
   app.port(port).multithreaded().run();
-}
-
-
-Server::dbConnection Server::connectDB()
-{
-  try {
-    return std::make_shared<pqxx::connection>(connectionString.c_str());
-  } catch (const pqxx::broken_connection& e) {
-    spdlog::error("DB connection error: {}", e.what());
-    throw std::runtime_error("error during connection to db");
-  }
 }
 
 std::string Server::hashPassword(const std::string& password)
@@ -100,80 +85,21 @@ bool Server::authorize(const crow::request& req)
   return true;
 }
 
-Server::dbConnection Server::prepareDB()
-{
-  auto DB_ptr = connectDB();
-  DB_ptr->prepare("insert_user", "INSERT INTO users(username, password_hash) VALUES($1, $2)");
-  DB_ptr->prepare("find_user", "SELECT password_hash FROM users WHERE username=$1");
-
-
-  DB_ptr->prepare("insert_chat", "INSERT INTO chats(name) VALUES($1) RETURNING id");
-  DB_ptr->prepare("insert_chat_member", "INSERT INTO chat_members(chat_id, user_id) VALUES($1, $2)");
-  DB_ptr->prepare("find_user_by_username", "SELECT id FROM users WHERE username=$1");
-  DB_ptr->prepare(
-    "insert_message",
-    "INSERT INTO messages(chat_id, sender_id, content) VALUES($1, $2, $3) RETURNING id"
-  );
-  DB_ptr->prepare("delete_message",
-    "DELETE FROM messages "
-    "WHERE id = $1"
-  );
-
-  DB_ptr->prepare("delete_chat",
-    "DELETE FROM chats WHERE id = $1"
-  );
-
-  DB_ptr->prepare("delete_chat_members",
-    "DELETE FROM chat_members WHERE chat_id = $1"
-  );
-
-  DB_ptr->prepare("delete_chat_messages",
-    "DELETE FROM messages WHERE chat_id = $1"
-  );
-
-  DB_ptr->prepare("check_user_in_chat",
-    "SELECT 1 FROM chat_members WHERE chat_id=$1 AND user_id = $2"
-  );
-
-  DB_ptr->prepare("find_user_by_message",
-    "SELECT sender_id FROM messages WHERE id=$1"
-  );
-
-  DB_ptr->prepare(
-    "get_user_chats",
-    "SELECT c.id, c.name FROM chats c "
-    "JOIN chat_members cm ON c.id = cm.chat_id "
-    "WHERE cm.user_id = $1"
-  );
-
-  DB_ptr->prepare(
-    "get_chat_messages",
-    "SELECT m.id, m.sender_id, m.content, m.read "
-    "FROM messages m "
-    "WHERE m.chat_id = $1 "
-    "ORDER BY m.id ASC"
-  );
-
-  return DB_ptr;
-}
-
-
 void Server::setupRoutes()
 {
   spdlog::info("setup_Routes start");
 
-  auto DB = prepareDB();
-  registerRoute(DB);
-  loginRoute(DB);
+  registerRoute();
+  loginRoute();
   protectedRoute();
-  createChatRoute(DB);
-  sendMessageRoute(DB);
-  deleteMessageRoute(DB);
-  deleteChatRoute(DB);
-  insertChatMemberRoute(DB);
-  chatsRoute(DB);
-  chatMessagesRoute(DB);
-  webSocketMessageRoute(DB);
+  createChatRoute();
+  sendMessageRoute();
+  deleteMessageRoute();
+  deleteChatRoute();
+  insertChatMemberRoute();
+  chatsRoute();
+  chatMessagesRoute();
+  webSocketMessageRoute();
 }
   
 int main() {

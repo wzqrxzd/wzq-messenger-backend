@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDART 23)
 set(LIBS ${CMAKE_SOURCE_DIR}/libs)
 set(CMAKE_CXX_STANDART_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
+add_compile_options(-Wdeprecated-declarations)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -24,6 +25,7 @@ add_executable(wzq-message-server
   jwt_utils.cxx
   env_utils.cxx
   routes.cxx
+  database.cxx
 )
 
 target_include_directories(wzq-message-server PRIVATE ${LIBS}/crow/include/ ${LIBS}/jwt-cpp/include/ ${PostgreSQL_INCLUDE_DIRS})
