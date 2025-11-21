@@ -1,3 +1,4 @@
+#include "crow/common.h"
 #include "database.hxx"
 #include "server.hxx"
 #include "jwt_utils.hxx"
@@ -18,7 +19,6 @@ struct WsClient {
 std::mutex wsMutex;
 std::set<std::shared_ptr<WsClient>> wsClients;
 
-// Отправка сообщения всем клиентам в чате
 void sendMessageToChat(int chatId, const std::string& message)
 {
     std::lock_guard<std::mutex> lock(wsMutex);
@@ -39,14 +39,14 @@ void Server::webSocketMessageRoute() {
         std::lock_guard<std::mutex> lock(wsMutex);
         for (auto it = wsClients.begin(); it != wsClients.end(); ) {
             if ((*it)->conn == &conn) {
-                it = wsClients.erase(it); // erase вернёт следующий итератор
+                it = wsClients.erase(it);
             } else {
                 ++it;
             }
         }
         spdlog::info("[WebSocket] Closed: {} (code {})", reason, code);
     })
-    .onmessage([this](crow::websocket::connection& conn, const std::string& msg, bool /*is_binary*/) {
+    .onmessage([this](crow::websocket::connection& conn, const std::string& msg, bool) {
         ConnectionGuard DB(dbHandle);
         try {
             auto data = nlohmann::json::parse(msg);
@@ -151,7 +151,9 @@ void Server::loginRoute()
         return json_response(401, R"({"error":"unauthorized"})");
 
       std::string token = jwt_utils::generateJWT(username, this->secret);
-      return json_response(200, fmt::format(R"({{"token":"{}"}})", token));
+      pqxx::result R_user = W.exec_prepared("find_user_by_username", username);
+      int user_id = R_user[0]["id"].as<int>();
+      return json_response(200, fmt::format(R"({{"token":"{}","user_id":"{}"}})", token, user_id));
     } catch (const std::exception& e) {
       spdlog::error("error: {}", e.what());
       return json_response(400, R"({"status":"bad_request"})");
@@ -178,7 +180,7 @@ void Server::protectedRoute()
 
 void Server::createChatRoute()
 {
-  CROW_ROUTE(app, "/create_chat").methods(crow::HTTPMethod::POST)([this](const crow::request& req){
+  CROW_ROUTE(app, "/chats").methods(crow::HTTPMethod::POST)([this](const crow::request& req){
     if (!authorize(req))
       return json_response(401, R"({"error":"not valid token"})");
 
@@ -229,7 +231,7 @@ void Server::createChatRoute()
 }
 void Server::sendMessageRoute()
 {
-  CROW_ROUTE(app, "/send_message").methods(crow::HTTPMethod::POST)([this](const crow::request& req){
+  CROW_ROUTE(app, "/chats/<int>/messages").methods(crow::HTTPMethod::POST)([this](const crow::request& req, int chatId){
     if (!authorize(req))
       return json_response(401, R"({"error":"not valid token"})");
 
@@ -237,61 +239,55 @@ void Server::sendMessageRoute()
     std::string username = jwt_utils::getUsernameFromToken(token);
 
     auto body_json = crow::json::load(req.body);
-    if (!body_json || !body_json.has("chat_id") || !body_json.has("content"))
+    if (!body_json || !body_json.has("content"))
       return json_response(400, R"({"error":"invalid_json"})");
 
-    int chat_id = body_json["chat_id"].i();
     std::string content = body_json["content"].s();
 
 
     ConnectionGuard DB(dbHandle);
     pqxx::work W(DB.get());
     pqxx::result R_user = W.exec_prepared("find_user_by_username", username);
-    int user_id = R_user[0]["id"].as<int>();
+    int userId = R_user[0]["id"].as<int>();
 
-    pqxx::result R = W.exec_prepared("check_user_in_chat", chat_id, user_id);
+    pqxx::result R = W.exec_prepared("check_user_in_chat", chatId, userId);
 
     if (R.empty())
       return json_response(403, R"({"error":"user_not_in_the_chat"})");
 
-    pqxx::result R_msg = W.exec_prepared("insert_message", chat_id, user_id, content);
-    int message_id = R_msg[0]["id"].as<int>();
+    pqxx::result R_msg = W.exec_prepared("insert_message", chatId, userId, content);
+    int messageId = R_msg[0]["id"].as<int>();
 
     W.commit();
     nlohmann::json notify_json = {
         {"type", "new_message"},
-        {"chat_id", chat_id},
-        {"message_id", message_id},
-        {"sender_id", user_id},
+        {"chat_id", chatId},
+        {"message_id", messageId},
+        {"sender_id", userId},
+        {"sender_name", username},
         {"content", content}
     };
-    sendMessageToChat(chat_id, notify_json.dump());
-    spdlog::info("messageId = {}", message_id);
-    return json_response(200, fmt::format(R"({{"status":"message_sent","message_id":"{}"}})", std::to_string(message_id)));
+    sendMessageToChat(chatId, notify_json.dump());
+    spdlog::info("messageId = {}", messageId);
+    return json_response(200, fmt::format(R"({{"status":"message_sent","message_id":"{}"}})", std::to_string(messageId)));
   });
 }
 
 void Server::deleteMessageRoute()
 {
-  CROW_ROUTE(app, "/delete_message").methods(crow::HTTPMethod::POST)([this](const crow::request& req){
+  CROW_ROUTE(app, "/chats/<int>/messages/<int>").methods(crow::HTTPMethod::DELETE)([this](const crow::request& req, int chatId, int messageId){
     if (!authorize(req))
       return json_response(401, R"({"error":"not valid token"})");
 
     std::string token = req.get_header_value("Authorization").substr(7);
     std::string username = jwt_utils::getUsernameFromToken(token);
 
-    auto body_json = crow::json::load(req.body);
-    if (!body_json || !body_json.has("message_id"))
-      return json_response(400, R"({"error":"invalid_json"})");
-
-    int message_id = body_json["message_id"].i();
-
     ConnectionGuard DB(dbHandle);
     try {
       pqxx::work W(DB.get());
 
       pqxx::result R_request_user = W.exec_prepared("find_user_by_username", username);
-      pqxx::result R_user_message = W.exec_prepared("find_user_by_message", message_id);
+      pqxx::result R_user_message = W.exec_prepared("find_user_by_message", messageId);
       int userId = R_request_user[0]["id"].as<int>();
       int senderId = R_user_message[0]["sender_id"].as<int>();
 
@@ -300,11 +296,11 @@ void Server::deleteMessageRoute()
       if (userId != senderId)
         return json_response(401, R"({"error":"sender id != user id"})");
 
-      W.exec_prepared("delete_message", message_id);
+      W.exec_prepared("delete_message", messageId);
 
       W.commit();
 
-      return json_response(200, fmt::format(R"({{"status":"deleted","message_id":"{}"}})",std::to_string(message_id)));
+      return json_response(200, fmt::format(R"({{"status":"deleted","message_id":"{}"}})",std::to_string(messageId)));
     } catch (const std::exception& e) {
       spdlog::info("DB error: {}", e.what());
       return json_response(500, R"({"error":"Internal server error"})");
@@ -316,7 +312,7 @@ void Server::deleteMessageRoute()
 
 void Server::deleteChatRoute()
 {
-  CROW_ROUTE(app, "/chat/<int>/delete").methods(crow::HTTPMethod::POST)([this](const crow::request& req, int chatId){
+  CROW_ROUTE(app, "/chats/<int>").methods(crow::HTTPMethod::DELETE)([this](const crow::request& req, int chatId){
     if (!authorize(req))
       return json_response(401, "{\"error\":\"not valid token\"}");
 
@@ -366,7 +362,7 @@ void Server::deleteChatRoute()
 
 void Server::insertChatMemberRoute()
 {
-  CROW_ROUTE(app, "/insert_chat_member").methods(crow::HTTPMethod::POST)([this](const crow::request& req){
+  CROW_ROUTE(app, "/chats/<int>/add_user").methods(crow::HTTPMethod::POST)([this](const crow::request& req, int chatId){
     if (!authorize(req))
       return json_response(401, R"({"error":"not valid token"})");
 
@@ -374,10 +370,9 @@ void Server::insertChatMemberRoute()
     std::string username = jwt_utils::getUsernameFromToken(token);
 
     auto body_json = crow::json::load(req.body);
-    if (!body_json || !body_json.has("chat_id") || !body_json.has("user_id"))
+    if (!body_json || !body_json.has("user_id"))
       return json_response(400, R"({"error":"invalid_json"})");
 
-    int chatId = body_json["chat_id"].i();
     int insertUserId = body_json["user_id"].i();
 
     ConnectionGuard DB(dbHandle);
@@ -443,9 +438,9 @@ void Server::chatsRoute()
 
 void Server::chatMessagesRoute()
 {
-  CROW_ROUTE(app, "/chat/<int>/messages").methods(crow::HTTPMethod::GET)([this](const crow::request& req, int chatId){
+  CROW_ROUTE(app, "/chats/<int>/messages").methods(crow::HTTPMethod::GET)([this](const crow::request& req, int chatId){
     if (!authorize(req))
-      return json_response(401, R"({"error":"not valid token"})");
+      return json_response(403, R"({"error":"not valid token"})");
     std::string token = req.get_header_value("Authorization").substr(7);
     std::string username = jwt_utils::getUsernameFromToken(token);
 
@@ -465,17 +460,39 @@ void Server::chatMessagesRoute()
       pqxx::result R = W.exec_prepared("get_chat_messages", chatId);
       for (auto row : R)
       {
+        pqxx::result R = W.exec_prepared("get_username_by_id", userId);
         res_json.push_back({
           {"message_id", row["id"].as<int>()},
           {"sender_id", row["sender_id"].as<int>()},
+          {"sender_name", row["sender_name"].as<std::string>()},
           {"content", row["content"].c_str()},
-          {"read", row["read"].as<bool>()}
         });
       }
 
       return json_response(200, res_json);
     } catch (...) {
       spdlog::error("get_chat_messages error");
+      return json_response(500, R"({"error":"server_error"})");
+    }
+  });
+}
+
+void Server::userInfoRoute() {
+  CROW_ROUTE(app, "/user/<int>").methods(crow::HTTPMethod::GET)([this](const crow::request& req, int userId){
+    if (!authorize(req))
+      return json_response(403, R"({"error":"not valid token"})");
+
+    std::string token = req.get_header_value("Authorization").substr(7);
+    std::string username = jwt_utils::getUsernameFromToken(token);
+
+    ConnectionGuard DB(dbHandle);
+    pqxx::work W(DB.get());
+
+    try {
+      pqxx::result R = W.exec_prepared("get_username_by_id", userId);
+      return json_response(200, fmt::format(R"({{"username":"{}","user_id":"{}"}})", R[0][0].as<std::string>(), userId));
+    } catch (...) {
+      spdlog::error("get_user_info error");
       return json_response(500, R"({"error":"server_error"})");
     }
   });

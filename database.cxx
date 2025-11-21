@@ -4,7 +4,7 @@
 #include <mutex>
 #include <stdexcept>
 
-DatabaseHandler::DatabaseHandler(const std::string& user, const std::string& name, const std::string& pass, const uint16_t poolSize)
+Database::Database(const std::string& user, const std::string& name, const std::string& pass, const uint16_t poolSize)
   : connectionString(
   "dbname=" + name +
   " user=" + user +
@@ -15,9 +15,9 @@ DatabaseHandler::DatabaseHandler(const std::string& user, const std::string& nam
     connPool.push(prepareDB(std::make_shared<pqxx::connection>(connectionString)));
 }
 
-DatabaseHandler::~DatabaseHandler() = default;
+Database::~Database() = default;
 
-DatabaseHandler::dbConnection DatabaseHandler::aquireConnection()
+Database::dbConnection Database::acquireConnection()
 {
   std::unique_lock<std::mutex> lock(mtx);
   cv.wait(lock, [&] { return !connPool.empty(); });
@@ -27,7 +27,7 @@ DatabaseHandler::dbConnection DatabaseHandler::aquireConnection()
   return conn;
 }
 
-void DatabaseHandler::releaseConnection(DatabaseHandler::dbConnection conn)
+void Database::releaseConnection(Database::dbConnection conn)
 {
   {
     std::unique_lock<std::mutex> lock(mtx);
@@ -36,7 +36,7 @@ void DatabaseHandler::releaseConnection(DatabaseHandler::dbConnection conn)
   cv.notify_all();
 }
 
-DatabaseHandler::dbConnection DatabaseHandler::prepareDB(DatabaseHandler::dbConnection conn)
+Database::dbConnection Database::prepareDB(Database::dbConnection conn)
 {
   conn->prepare("insert_user", "INSERT INTO users(username, password_hash) VALUES($1, $2)");
   conn->prepare("find_user", "SELECT password_hash FROM users WHERE username=$1");
@@ -81,12 +81,26 @@ DatabaseHandler::dbConnection DatabaseHandler::prepareDB(DatabaseHandler::dbConn
     "WHERE cm.user_id = $1"
   );
 
+  // conn->prepare(
+  //   "get_chat_messages",
+  //   "SELECT m.id, m.sender_id, m.content, m.read "
+  //   "FROM messages m "
+  //   "WHERE m.chat_id = $1 "
+  //   "ORDER BY m.id ASC"
+  // );
+
   conn->prepare(
     "get_chat_messages",
-    "SELECT m.id, m.sender_id, m.content, m.read "
+    "SELECT m.id, m.sender_id, u.username AS sender_name, m.content, m.read "
     "FROM messages m "
+    "JOIN users u ON m.sender_id = u.id "
     "WHERE m.chat_id = $1 "
     "ORDER BY m.id ASC"
+  );
+
+  conn->prepare(
+      "get_username_by_id",
+      "SELECT username FROM users WHERE id = $1"
   );
 
   return conn;

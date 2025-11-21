@@ -7,18 +7,20 @@
 #include <condition_variable>
 #include <cstdint>
 
-class DatabaseHandler
+class Database
 {
   public:
     using dbConnection = std::shared_ptr<pqxx::connection>;
 
-    DatabaseHandler(const std::string& user, const std::string& name, const std::string& pass, uint16_t poolSize);
-    ~DatabaseHandler();
-
-    dbConnection aquireConnection();
-    void releaseConnection(dbConnection conn);
+    Database(const std::string& user, const std::string& name, const std::string& pass, uint16_t poolSize);
+    ~Database();
 
   private:
+    friend class ConnectionGuard;
+
+    dbConnection acquireConnection();
+    void releaseConnection(dbConnection conn);
+
     dbConnection prepareDB(dbConnection conn);
 
     std::queue<dbConnection> connPool;
@@ -31,13 +33,13 @@ class DatabaseHandler
 class ConnectionGuard
 {
   public:
-    ConnectionGuard(DatabaseHandler& db) : db(db), conn(db.aquireConnection()) {};
+    ConnectionGuard(Database& db) : db(db), conn(db.acquireConnection()) {};
     ~ConnectionGuard() { db.releaseConnection(conn); };
     pqxx::connection& get() { return *conn; }
     pqxx::connection* operator->() { return conn.get(); }
   private:
-    DatabaseHandler& db;
-    DatabaseHandler::dbConnection conn;
+    Database& db;
+    Database::dbConnection conn;
 };
 
 

@@ -7,6 +7,7 @@
 #include "jwt_utils.hxx"
 #include "env_utils.hxx"
 #include "server.hxx"
+#include <sodium.h>
 
 Server::Server() :
   dbHandle(
@@ -17,6 +18,10 @@ Server::Server() :
   ),
   secret(env_utils::getEnvVar("JWT_SECRET"))
 {
+  if (sodium_init() < 0) {
+      throw std::runtime_error("libsodium init failed");
+  }
+
   auto& cors = app.get_middleware<crow::CORSHandler>();
   cors.global()
     .origin("*")
@@ -40,15 +45,17 @@ std::string Server::hashPassword(const std::string& password)
 {
   char hash[128];
   uint8_t salt[16];
-  memset(salt, 0x00, 16);
+  randombytes_buf(salt, sizeof(salt));
 
-  auto saltGen = [](uint8_t* salt){
-    std::random_device rd;
-    for (int i{0}; i<16; i++)
-    {
-      *(salt+i) = static_cast<uint8_t>(rd() & 0xFF);
-    }
-  };
+  // memset(salt, 0x00, 16);
+  //
+  // auto saltGen = [](uint8_t* salt){
+  //   std::random_device rd;
+  //   for (int i{0}; i<16; i++)
+  //   {
+  //     *(salt+i) = static_cast<uint8_t>(rd() & 0xFF);
+  //   }
+  // };
 
   argon2i_hash_encoded(
   2,              // t_cost
@@ -56,9 +63,9 @@ std::string Server::hashPassword(const std::string& password)
         1,              // parallelism
         password.c_str(),
         password.size(),
-        salt,   // соль не nullptr
-        16,
-        32,             // hashlen (например 32 байта)
+        salt,
+        sizeof(salt),
+        32,             // hashlen
         hash,
         sizeof(hash)
   );
@@ -100,6 +107,7 @@ void Server::setupRoutes()
   chatsRoute();
   chatMessagesRoute();
   webSocketMessageRoute();
+  userInfoRoute();
 }
   
 int main() {

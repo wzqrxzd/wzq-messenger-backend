@@ -8,6 +8,7 @@ RUN apt update && apt install -y \
   libpq-dev \
   libssl-dev \
   libargon2-dev \
+  libsodium-dev \
   libasio-dev \
   libpqxx-dev \
   && rm -rf /var/lib/apt/lists/*

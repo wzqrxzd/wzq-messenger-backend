@@ -1,6 +1,7 @@
 #ifndef SERVER_HXX
 #define SERVER_HXX
 
+#include "auth.hxx"
 #include "crow.h"
 #include "database.hxx"
 #include "crow/middlewares/cors.h"
@@ -31,9 +32,10 @@ class Server
     void chatsRoute();
     void chatMessagesRoute();
     void webSocketMessageRoute();
+    void userInfoRoute();
 
     crow::App<crow::CORSHandler> app;
-    DatabaseHandler dbHandle;
+    Database dbHandle;
 
     const int port{8080};
 
