@@ -1,7 +1,6 @@
 #ifndef SERVER_HXX
 #define SERVER_HXX
 
-#include "auth.hxx"
 #include "crow.h"
 #include "database.hxx"
 #include "crow/middlewares/cors.h"
