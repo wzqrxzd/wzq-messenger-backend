@@ -38,7 +38,7 @@ void Database::releaseConnection(Database::dbConnection conn)
 
 Database::dbConnection Database::prepareDB(Database::dbConnection conn)
 {
-  conn->prepare("insert_user", "INSERT INTO users(username, password_hash) VALUES($1, $2)");
+  conn->prepare("insert_user", "INSERT INTO users(username, password_hash, name, description) VALUES($1, $2, $3, $4)");
   conn->prepare("find_user", "SELECT password_hash FROM users WHERE username=$1");
 
 
@@ -101,6 +101,21 @@ Database::dbConnection Database::prepareDB(Database::dbConnection conn)
   conn->prepare(
       "get_username_by_id",
       "SELECT username FROM users WHERE id = $1"
+  );
+
+  conn->prepare(
+      "get_user_by_id",
+      "SELECT username, name, description FROM users WHERE id = $1"
+  );
+
+  conn->prepare(
+      "get_chatname_by_id",
+      "SELECT name FROM chats WHERE id = $1"
+  );
+
+  conn->prepare(
+      "check_exists_chat"
+      "SELECT chat_id FROM chat_members WHERE user_id IN ($1, $2) GROUP BY chat_id HAVING COUNT(DISTINCT user_id) = 2"
   );
 
   return conn;

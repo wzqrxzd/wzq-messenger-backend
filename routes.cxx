@@ -9,7 +9,6 @@
 #include <format>
 #include "utils.hxx"
 
-
 struct WsClient {
     crow::websocket::connection* conn;
     int userId;
@@ -21,13 +20,31 @@ std::set<std::shared_ptr<WsClient>> wsClients;
 
 void sendMessageToChat(int chatId, const std::string& message)
 {
-    std::lock_guard<std::mutex> lock(wsMutex);
-    spdlog::info("cahtId {} message {}", chatId, message);
-    for (auto& client : wsClients) {
-        if (client->chatIds.count(chatId)) {
-            client->conn->send_text(message);
-        }
+  std::lock_guard<std::mutex> lock(wsMutex);
+  spdlog::info("cahtId {} message {}", chatId, message);
+  for (auto& client : wsClients) {
+    if (client->chatIds.count(chatId)) {
+      client->conn->send_text(message);
     }
+  }
+}
+
+void createChat(const int& chatId, const int& userId, const std::string& chatName)
+{
+   nlohmann::json notify = {
+      {"type", "new_chat"},
+      {"chat_id", chatId},
+      {"chat_name", chatName}
+    };
+
+  std::lock_guard<std::mutex> lock(wsMutex);
+  for (auto& client : wsClients) {
+    if (client->userId == userId) {
+      client->chatIds.insert(chatId);
+      client->conn->send_text(notify.dump());
+      spdlog::info("[WS] Sent new_chat notify to userId={} chatId={}", userId, chatId);
+    }
+  }
 }
 
 void Server::webSocketMessageRoute() {
@@ -98,20 +115,24 @@ void Server::registerRoute()
     auto body_json = crow::json::load(body);
     if (!body_json)
       return json_response(400, "Invalid JSON");
+    if (!body_json.has("name"))
+      return json_response(400, "Missing name field");
     if (!body_json.has("username"))
       return json_response(400, "Missing username field");
     if (!body_json.has("password"))
       return json_response(400, "Missing password field");
 
+    std::string name = body_json["name"].s();
     std::string username = body_json["username"].s();
     std::string password = body_json["password"].s();
+    std::string description = "";
 
     std::string hashedPassword = hashPassword(password);
 
     ConnectionGuard DB(dbHandle);
     try {
       pqxx::work W(DB.get());
-      W.exec_prepared("insert_user", username, hashedPassword);
+      W.exec_prepared("insert_user", username, hashedPassword, name, description);
       W.commit();
       auto token = jwt_utils::generateJWT(username, this->secret);
       return json_response(200, fmt::format(R"({{"status":"registered", "token":"{}"}})", token));
@@ -190,6 +211,8 @@ void Server::createChatRoute()
     auto body_json = crow::json::load(req.body);
     if (!body_json || !body_json.has("name"))
       return json_response(400, R"({"error":"invalid_json"})");
+    if (!body_json || !body_json.has("user"))
+      return json_response(400, R"({"error":"invalid_json"})");
 
     std::string chat_name = body_json["name"].s();
 
@@ -202,24 +225,10 @@ void Server::createChatRoute()
       int user_id = R_user[0]["id"].as<int>();
 
       W.exec_prepared("insert_chat_member", chat_id, user_id);
+
       W.commit();
 
-      nlohmann::json notify = {
-          {"type", "new_chat"},
-          {"chat_id", chat_id},
-          {"chat_name", chat_name}
-      };
-
-      {
-          std::lock_guard<std::mutex> lock(wsMutex);
-          for (auto& client : wsClients) {
-              if (client->userId == user_id) {
-                  client->chatIds.insert(chat_id);
-                  client->conn->send_text(notify.dump());
-                  spdlog::info("[WS] Sent new_chat notify to userId={} chatId={}", user_id, chat_id);
-              }
-          }
-      }
+      createChat(chat_id, user_id, chat_name);
 
       return json_response(200, fmt::format(R"({{"chat_id":"{}"}})", std::to_string(chat_id)));
     } catch (const std::exception& e) {
@@ -370,17 +379,19 @@ void Server::insertChatMemberRoute()
     std::string username = jwt_utils::getUsernameFromToken(token);
 
     auto body_json = crow::json::load(req.body);
-    if (!body_json || !body_json.has("user_id"))
+    if (!body_json || !body_json.has("username"))
       return json_response(400, R"({"error":"invalid_json"})");
 
-    int insertUserId = body_json["user_id"].i();
+    std::string chatMember = body_json["username"].s();
 
     ConnectionGuard DB(dbHandle);
 
     try {
       pqxx::work W(DB.get());
+      pqxx::result R_insert_userId = W.exec_prepared("find_user_by_username", chatMember);
       pqxx::result R_request_userId = W.exec_prepared("find_user_by_username", username);
       int userId = R_request_userId[0]["id"].as<int>();
+      int insertUserId = R_insert_userId[0]["id"].as<int>();
 
       pqxx::result R = W.exec_prepared("check_user_in_chat", chatId, userId);
 
@@ -388,7 +399,12 @@ void Server::insertChatMemberRoute()
         return json_response(403, R"({"error":"your_user_not_in_the_chat"})");
 
       W.exec_prepared("insert_chat_member", chatId, insertUserId);
+
+      pqxx::result R_chatname = W.exec_prepared("get_chatname_by_id", chatId);
+      std::string chatName = R_chatname[0]["name"].as<std::string>();
       W.commit();
+
+      createChat(chatId, insertUserId, chatName);
 
       return json_response(200, R"({"status":"user added"})");
     } catch (const std::exception& e) {
@@ -489,8 +505,8 @@ void Server::userInfoRoute() {
     pqxx::work W(DB.get());
 
     try {
-      pqxx::result R = W.exec_prepared("get_username_by_id", userId);
-      return json_response(200, fmt::format(R"({{"username":"{}","user_id":"{}"}})", R[0][0].as<std::string>(), userId));
+      pqxx::result R = W.exec_prepared("get_user_by_id", userId);
+      return json_response(200, fmt::format(R"({{"name":"{}","username":"{}","description":"{}","user_id":"{}"}})", R[0]["name"].as<std::string>(), R[0]["username"].as<std::string>(), R[0]["description"].as<std::string>(), userId));
     } catch (...) {
       spdlog::error("get_user_info error");
       return json_response(500, R"({"error":"server_error"})");
