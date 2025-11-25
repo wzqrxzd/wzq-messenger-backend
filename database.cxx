@@ -114,7 +114,7 @@ Database::dbConnection Database::prepareDB(Database::dbConnection conn)
   );
 
   conn->prepare(
-      "check_exists_chat"
+      "check_exists_chat",
       "SELECT chat_id FROM chat_members WHERE user_id IN ($1, $2) GROUP BY chat_id HAVING COUNT(DISTINCT user_id) = 2"
   );
 
