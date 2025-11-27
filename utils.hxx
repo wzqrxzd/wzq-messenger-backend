@@ -3,22 +3,19 @@
 
 #include <crow.h>
 #include <nlohmann/json.hpp>
+#include <concepts>
+#include <type_traits>
 
-// Для std::string
-inline crow::response json_response(int code, const std::string& body) {
+template <typename T>
+concept string = std::is_convertible_v<T, std::string> || std::is_convertible_v<T, const char*>;
+
+inline crow::response json_response(int code, string auto const& body) {
     crow::response res(code, body);
     res.set_header("Content-Type", "application/json");
     return res;
 }
 
-// Для const char*
-inline crow::response json_response(int code, const char* body) {
-    crow::response res(code, body);
-    res.set_header("Content-Type", "application/json");
-    return res;
-}
 
-// Для nlohmann::json
 inline crow::response json_response(int code, const nlohmann::json& body) {
     crow::response res(code, body.dump());
     res.set_header("Content-Type", "application/json");
