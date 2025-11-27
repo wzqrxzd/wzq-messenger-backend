@@ -26,14 +26,18 @@ if(NOT LIBSODIUM_INCLUDE_DIR OR NOT LIBSODIUM_LIBRARY)
     message(FATAL_ERROR "libsodium not found")
 endif()
 
+file(GLOB ROUTES_SRC "${CMAKE_SOURCE_DIR}/routes/*.cxx")
+
 add_executable(wzq-message-server
   server.cxx
-  jwt_utils.cxx
   env_utils.cxx
-  routes.cxx
   database.cxx
+  auth_service.cxx
+  route_manager.cxx
+  websocket_controller.cxx
+  ${ROUTES_SRC}
 )
 
-target_include_directories(wzq-message-server PRIVATE ${LIBS}/crow/include/ ${LIBS}/jwt-cpp/include/ ${PostgreSQL_INCLUDE_DIRS} ${LIBSODIUM_INCLUDE_DIR})
+target_include_directories(wzq-message-server PRIVATE ${CMAKE_SOURCE_DIR} ${LIBS}/crow/include/ ${LIBS}/jwt-cpp/include/ ${PostgreSQL_INCLUDE_DIRS} ${LIBSODIUM_INCLUDE_DIR})
 
 target_link_libraries(wzq-message-server PRIVATE spdlog fmt pqxx ${ARGON2_LIB} nlohmann_json OpenSSL::SSL OpenSSL::Crypto ${PostgreSQL_LIBRARIES} ${LIBSODIUM_LIBRARY})

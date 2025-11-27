@@ -1,13 +1,21 @@
 #include "crow.h"
 #include <spdlog/spdlog.h>
 #include <libpq-fe.h>
-#include "jwt-cpp/jwt.h"
-#include <nlohmann/json.hpp>
 #include <argon2.h>
-#include "jwt_utils.hxx"
 #include "env_utils.hxx"
 #include "server.hxx"
 #include <sodium.h>
+#include "routes/chats_messages_route.hxx"
+#include "routes/create_chat_route.hxx"
+#include "routes/delete_message_route.hxx"
+#include "routes/insert_member_route.hxx"
+#include "routes/register_route.hxx"
+#include "routes/login_route.hxx"
+#include "routes/send_message_route.hxx"
+#include "routes/chats_route.hxx"
+#include "routes/user_info_route.hxx"
+#include "routes/ws_route.hxx"
+#include "websocket_controller.hxx"
 
 Server::Server() :
   dbHandle(
@@ -16,7 +24,9 @@ Server::Server() :
     env_utils::getEnvVar("POSTGRES_PASSWORD"),
     4
   ),
-  secret(env_utils::getEnvVar("JWT_SECRET"))
+  secret(env_utils::getEnvVar("JWT_SECRET")),
+  auth(),
+  routeManager(app, auth, dbHandle)
 {
   if (sodium_init() < 0) {
       throw std::runtime_error("libsodium init failed");
@@ -41,73 +51,22 @@ void Server::run() {
   app.port(port).multithreaded().run();
 }
 
-std::string Server::hashPassword(const std::string& password)
-{
-  char hash[128];
-  uint8_t salt[16];
-  randombytes_buf(salt, sizeof(salt));
-
-  // memset(salt, 0x00, 16);
-  //
-  // auto saltGen = [](uint8_t* salt){
-  //   std::random_device rd;
-  //   for (int i{0}; i<16; i++)
-  //   {
-  //     *(salt+i) = static_cast<uint8_t>(rd() & 0xFF);
-  //   }
-  // };
-
-  argon2i_hash_encoded(
-  2,              // t_cost
-        1 << 16,        // m_cost (64 MB)
-        1,              // parallelism
-        password.c_str(),
-        password.size(),
-        salt,
-        sizeof(salt),
-        32,             // hashlen
-        hash,
-        sizeof(hash)
-  );
-  return std::string(hash);
-}
-
-bool Server::verifyPassword(const std::string& hash, const std::string& password)
-{
-  return argon2i_verify(hash.c_str(), password.c_str(), password.size()) == ARGON2_OK;
-}
-
-bool Server::authorize(const crow::request& req)
-{
-  auto authHeader = req.get_header_value("Authorization");
-  if (authHeader.empty())
-    return false;
-
-  std::string token = authHeader.substr(7);
-  spdlog::info("{}", token);
-
-  if (!jwt_utils::verifyJWT(token, secret))
-    return false;
-
-  return true;
-}
-
 void Server::setupRoutes()
 {
   spdlog::info("setup_Routes start");
 
-  registerRoute();
-  loginRoute();
-  protectedRoute();
-  createChatRoute();
-  sendMessageRoute();
-  deleteMessageRoute();
-  deleteChatRoute();
-  insertChatMemberRoute();
-  chatsRoute();
-  chatMessagesRoute();
-  webSocketMessageRoute();
-  userInfoRoute();
+  routeManager.addRoute<WSRoute>();
+  routeManager.addRoute<LoginRoute>();
+  routeManager.addRoute<RegisterRoute>();
+  routeManager.addRoute<SendMessageRoute>();
+  routeManager.addRoute<ChatsRoute>();
+  routeManager.addRoute<ChatsMessagesRoute>();
+  routeManager.addRoute<CreateChatRoute>();
+  routeManager.addRoute<InsertMemberRoute>();
+  routeManager.addRoute<DeleteMessageRoute>();
+  routeManager.addRoute<UserInfoRoute>();
+
+  routeManager.setupRoutes();
 }
   
 int main() {
