@@ -44,6 +44,10 @@ Server::Server() :
     )
     .headers("Content-Type, Authorization")
     .allow_credentials();
+
+  spdlog::set_level(spdlog::level::debug);
+  spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%l] %v");
+
   setupRoutes();
 }
 

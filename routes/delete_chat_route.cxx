@@ -9,14 +9,15 @@ DeleteChatRoute::DeleteChatRoute(crow::App<crow::CORSHandler>& app, WebsocketCon
 void DeleteChatRoute::setup()
 {
   CROW_ROUTE(app, "/chats/<int>").methods(crow::HTTPMethod::DELETE)([this](const crow::request& req, int chatId){
-    if (!auth.authorizeRequest(req))
-      return json_response(401, "{\"error\":\"not valid token\"}");
+    return trySafe([&](){
+      if (!auth.authorizeRequest(req))
+        throw AuthException(AuthError::TokenExpired);
 
-    std::string token = req.get_header_value("Authorization").substr(7);
-    std::string username = auth.getUsernameFromToken(token);
+      std::string token = req.get_header_value("Authorization").substr(7);
+      std::string username = auth.getUsernameFromToken(token);
 
-    ConnectionGuard DB(dbHandle);
-    try {
+      ConnectionGuard DB(dbHandle);
+
       pqxx::work W(DB.get());
       pqxx::result R_request_userId = W.exec_prepared("find_user_by_username", username);
       int userId = R_request_userId[0]["id"].as<int>();
@@ -35,9 +36,6 @@ void DeleteChatRoute::setup()
       wsController.notifyDeleteChat(chatId, userId);
 
       return json_response(200, R"({"status":"chat_deleted"})");
-    } catch (const std::exception& e) {
-        spdlog::info("DB error: {}", e.what());
-        return json_response(500, R"({"error":"Internal server error"})");
-    }
+    });
   });
 }

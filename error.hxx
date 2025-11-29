@@ -1,9 +1,14 @@
 #ifndef ERROR_HXX
 #define ERROR_HXX
 
+#include "crow.h"
 #include <exception>
+#include <fmt/format.h>
 #include <string>
 #include <unordered_map>
+
+template <typename>
+inline constexpr bool always_false = false;
 
 enum class AuthError {
   TokenExpired,
@@ -31,7 +36,7 @@ class BaseException : public std::exception {
 
 class AuthException : public BaseException {
   public:
-    explicit AuthException(const AuthError& code, const std::string& message = "") : BaseException(ErrorCodes.at(code)), code(code){}
+    explicit AuthException(const AuthError& code, const std::string& message = "") : BaseException(ErrorCodes.at(code) + fmt::format(" ({})", message)), code(code){}
     AuthError getCode() const { return code; }
   private:
     AuthError code;
@@ -42,11 +47,30 @@ class JsonException : public BaseException {
     explicit JsonException(const std::string& message) : BaseException(message) {}
 };
 
-class DbException : public BaseException {
-  public:
-    explicit DbException(const std::string& message) : BaseException(message) {}
-};
+template <typename T>
+T getJsonField(const crow::json::rvalue& body_json, const std::string& field)
+{
+  if (!body_json)
+    throw JsonException("Malformed json");
+  if (!body_json.has(field))
+    throw JsonException(fmt::format("Missing field \"{}\"", field));
 
+  try {
+    if constexpr (std::is_same_v<T, std::string>) {
+      return body_json[field].s();
+    } else if constexpr (std::is_same_v<T, int>) {
+      return body_json[field].i();
+    } else if constexpr (std::is_same_v<T, double>) {
+      return body_json[field].d();
+    } else if constexpr (std::is_same_v<T, bool>) {
+      return body_json[field].b();
+    } else {
+      static_assert(always_false<T>, "Unsupported type for getJsonField");
+    }
+  } catch (...) {
+    throw std::runtime_error(std::format("Field \"{}\" has wrong type", field));
+  }
+}
 
 
 #endif

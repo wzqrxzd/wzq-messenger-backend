@@ -1,4 +1,5 @@
 #include "routes/delete_message_route.hxx"
+#include "error.hxx"
 #include "route.hxx"
 #include "utils.hxx"
 #include <spdlog/spdlog.h>
@@ -9,14 +10,15 @@ DeleteMessageRoute::DeleteMessageRoute(crow::App<crow::CORSHandler>& app, Websoc
 void DeleteMessageRoute::setup()
 {
   CROW_ROUTE(app, "/chats/<int>/messages/<int>").methods(crow::HTTPMethod::DELETE)([this](const crow::request& req, int chatId, int messageId){
-    if (!auth.authorizeRequest(req))
-      return json_response(401, R"({"error":"not valid token"})");
+    return trySafe([&](){
+      if (!auth.authorizeRequest(req))
+        throw AuthException(AuthError::TokenExpired);
 
-    std::string token = req.get_header_value("Authorization").substr(7);
-    std::string username = auth.getUsernameFromToken(token);
+      std::string token = req.get_header_value("Authorization").substr(7);
+      std::string username = auth.getUsernameFromToken(token);
 
-    ConnectionGuard DB(dbHandle);
-    try {
+      ConnectionGuard DB(dbHandle);
+
       pqxx::work W(DB.get());
 
       pqxx::result R_request_user = W.exec_prepared("find_user_by_username", username);
@@ -24,20 +26,15 @@ void DeleteMessageRoute::setup()
       int userId = R_request_user[0]["id"].as<int>();
       int senderId = R_user_message[0]["sender_id"].as<int>();
 
-      spdlog::info("userId = {}, senderId = {}", userId, senderId);
-
       if (userId != senderId)
-        return json_response(401, R"({"error":"sender id != user id"})");
+        throw AuthException(AuthError::PermissionDenied);
 
       W.exec_prepared("delete_message", messageId);
 
       W.commit();
 
       return json_response(200, fmt::format(R"({{"status":"deleted","message_id":"{}"}})",std::to_string(messageId)));
-    } catch (const std::exception& e) {
-      spdlog::info("DB error: {}", e.what());
-      return json_response(500, R"({"error":"Internal server error"})");
-    }
+  });
   });
 
 }

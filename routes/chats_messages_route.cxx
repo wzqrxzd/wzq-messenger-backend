@@ -9,20 +9,20 @@ ChatsMessagesRoute::ChatsMessagesRoute(crow::App<crow::CORSHandler>& app, Websoc
 void ChatsMessagesRoute::setup()
 {
   CROW_ROUTE(app, "/chats/<int>/messages").methods(crow::HTTPMethod::GET)([this](const crow::request& req, int chatId){
-    if (!auth.authorizeRequest(req))
-      return json_response(403, R"({"error":"not valid token"})");
-    std::string token = req.get_header_value("Authorization").substr(7);
-    std::string username = auth.getUsernameFromToken(token);
+    return trySafe([&](){
+      if (!auth.authorizeRequest(req))
+        throw AuthException(AuthError::TokenExpired);
+      std::string token = req.get_header_value("Authorization").substr(7);
+      std::string username = auth.getUsernameFromToken(token);
 
-    ConnectionGuard DB(dbHandle);
+      ConnectionGuard DB(dbHandle);
 
-    pqxx::work W(DB.get());
-    pqxx::result R_request_userId = W.exec_prepared("find_user_by_username", username);
-    int userId = R_request_userId[0]["id"].as<int>();
+      pqxx::work W(DB.get());
+      pqxx::result R_request_userId = W.exec_prepared("find_user_by_username", username);
+      int userId = R_request_userId[0]["id"].as<int>();
 
-    nlohmann::json res_json = nlohmann::json::array();
+      nlohmann::json res_json = nlohmann::json::array();
 
-    try {
       pqxx::result check = W.exec_prepared("check_user_in_chat", chatId, userId);
       if (check.empty())
         return json_response(403, R"({"error":"user_not_in_chat"})"); 
@@ -40,9 +40,6 @@ void ChatsMessagesRoute::setup()
       }
 
       return json_response(200, res_json);
-    } catch (...) {
-      spdlog::error("get_chat_messages error");
-      return json_response(500, R"({"error":"server_error"})");
-    }
+    });
   });
 }

@@ -1,4 +1,5 @@
 #include "create_chat_route.hxx"
+#include "error.hxx"
 #include "register_route.hxx"
 #include "route.hxx"
 #include "utils.hxx"
@@ -10,23 +11,20 @@ CreateChatRoute::CreateChatRoute(crow::App<crow::CORSHandler>& app, WebsocketCon
 void CreateChatRoute::setup()
 {
   CROW_ROUTE(app, "/chats").methods(crow::HTTPMethod::POST)([this](const crow::request& req){
-    if (!auth.authorizeRequest(req))
-      return json_response(401, R"({"error":"not valid token"})");
+    return trySafe([&](){
+      if (!auth.authorizeRequest(req))
+        throw AuthException(AuthError::TokenExpired);
 
-    std::string token = req.get_header_value("Authorization").substr(7);
-    std::string username = auth.getUsernameFromToken(token);
+      std::string token = req.get_header_value("Authorization").substr(7);
+      std::string username = auth.getUsernameFromToken(token);
 
-    auto body_json = crow::json::load(req.body);
-    if (!body_json || !body_json.has("name"))
-      return json_response(400, R"({"error":"invalid_json"})");
-    if (!body_json || !body_json.has("username"))
-      return json_response(400, R"({"error":"invalid_json"})");
+      auto body_json = crow::json::load(req.body);
 
-    std::string chat_name = body_json["name"].s();
-    std::string usernameSecond = body_json["username"].s();
+      std::string chat_name = getJsonField<std::string>(body_json, "name");
+      std::string usernameSecond = getJsonField<std::string>(body_json, "name");
 
-    ConnectionGuard DB(dbHandle);
-    try {
+      ConnectionGuard DB(dbHandle);
+
       pqxx::work W(DB.get());
 
       int chat_id = W.exec_prepared("insert_chat", chat_name)[0]["id"].as<int>();
@@ -47,10 +45,7 @@ void CreateChatRoute::setup()
       wsController.notifyNewChat(chat_id, userSecond_id, chat_name);
 
       return json_response(200, fmt::format(R"({{"chat_id":"{}"}})", std::to_string(chat_id)));
-    } catch (const std::exception& e) {
-      spdlog::info("DB error: {}", e.what());
-      return json_response(500, R"({"error":"Internal server error"})");
-    }
+  });
   });
 
 }
