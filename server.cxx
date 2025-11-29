@@ -57,7 +57,7 @@ void Server::run() {
 
 void Server::setupRoutes()
 {
-  spdlog::info("setup_Routes start");
+  spdlog::info("setup routes start");
 
   routeManager.addRoute<WSRoute>();
   routeManager.addRoute<LoginRoute>();
