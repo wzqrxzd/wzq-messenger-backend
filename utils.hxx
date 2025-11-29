@@ -38,16 +38,16 @@ crow::response trySafe(Func f)
     return json_response(400, std::format(R"({{"error":"{}"}})", e.what()));
   } catch (const pqxx::sql_error& e) {
     spdlog::error("SQL error: {}, Query: {}", e.what(), e.query());
-    return json_response(500, R"("{"error":"Internal server error"}")");
+    return json_response(500, R"({"error":"Internal server error"})");
   } catch (const pqxx::broken_connection& e) {
     spdlog::error("Database connection lost: {}", e.what());
-    return json_response(500, R"("{"error":"Internal server error"}")");
+    return json_response(500, R"({"error":"Internal server error"})");
   } catch (const pqxx::failure& e) {
     spdlog::error("PQXX failure: {}", e.what());
-    return json_response(500, R"("{"error":"Internal server error"}")");
+    return json_response(500, R"({"error":"Internal server error"})");
   } catch (const std::exception& e) {
     spdlog::warn("Unknown exception: {}", e.what());
-    return json_response(500, R"("{"error":"Internal server error"}")");
+    return json_response(500, R"({"error":"Internal server error"})");
   }
 }
 
