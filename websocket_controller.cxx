@@ -4,13 +4,22 @@
 
 WebsocketController::WebsocketController() {}
 
-void WebsocketController::notifyNewMessage(const int& chatId, const std::string& message)
+void WebsocketController::notifyNewMessage(const int& chatId, const int& messageId, const int& senderId, const std::string& senderName, const std::string& content)
 {
+  nlohmann::json notify = {
+      {"type", "new_message"},
+      {"chat_id", chatId},
+      {"message_id", messageId},
+      {"sender_id", senderId},
+      {"sender_name", senderName},
+      {"content", content}
+  };
+
   std::lock_guard<std::mutex> lock(mtx);
-  spdlog::info("cahtId {} message {}", chatId, message);
+  spdlog::info("cahtId {} message {}", chatId, content);
   for (auto& client : wsClients) {
     if (client->chatIds.count(chatId)) {
-      client->conn->send_text(message);
+      client->conn->send_text(notify.dump());
     }
   }
 }

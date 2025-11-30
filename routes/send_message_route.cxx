@@ -22,6 +22,7 @@ void SendMessageRoute::setup()
       std::string content = getJsonField<std::string>(body_json, "content");
 
       ConnectionGuard DB(dbHandle);
+
       pqxx::work W(DB.get());
       pqxx::result R_user = W.exec_prepared("find_user_by_username", username);
       int userId = R_user[0]["id"].as<int>();
@@ -35,17 +36,8 @@ void SendMessageRoute::setup()
       int messageId = R_msg[0]["id"].as<int>();
 
       W.commit();
-      nlohmann::json notify_json = {
-          {"type", "new_message"},
-          {"chat_id", chatId},
-          {"message_id", messageId},
-          {"sender_id", userId},
-          {"sender_name", username},
-          {"content", content}
-      };
-      wsController.notifyNewMessage(chatId, notify_json.dump());
 
-      spdlog::debug("messageId = {}", messageId);
+      wsController.notifyNewMessage(chatId, messageId, userId, username, content);
 
       return json_response(200, fmt::format(R"({{"status":"message_sent","message_id":"{}"}})", std::to_string(messageId)));
   });

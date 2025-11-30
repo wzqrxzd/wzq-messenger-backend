@@ -13,7 +13,7 @@ std::string AuthService::hashPassword(const std::string& password)
   uint8_t salt[16];
   randombytes_buf(salt, sizeof(salt));
   argon2i_hash_encoded(
-  2,              // t_cost
+        2,              // t_cost
         1 << 16,        // m_cost (64 MB)
         1,              // parallelism
         password.c_str(),

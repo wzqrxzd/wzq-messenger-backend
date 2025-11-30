@@ -15,7 +15,7 @@ class WebsocketController {
   public:
     explicit WebsocketController();
 
-    void notifyNewMessage(const int& chatId, const std::string& message);
+    void notifyNewMessage(const int& chatId, const int& messageId, const int& senderId, const std::string& senderName, const std::string& content);
     void notifyNewChat(const int& chatId, const int& userId, const std::string& chatName);
     void notifyDeleteChat(const int& chatId, const int& userId);
 
