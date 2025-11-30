@@ -11,9 +11,9 @@
 #include <type_traits>
 
 template <typename T>
-concept string = std::is_convertible_v<T, std::string> || std::is_convertible_v<T, const char*>;
+concept stringLike = std::is_convertible_v<T, std::string> || std::is_convertible_v<T, const char*>;
 
-inline crow::response json_response(int code, string auto const& body) {
+inline crow::response json_response(int code, stringLike auto const& body) {
     crow::response res(code, body);
     res.set_header("Content-Type", "application/json");
     return res;
