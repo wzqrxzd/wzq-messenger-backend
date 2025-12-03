@@ -2,6 +2,7 @@
 #include <spdlog/spdlog.h>
 #include <libpq-fe.h>
 #include <argon2.h>
+#include "crow/common.h"
 #include "env_utils.hxx"
 #include "server.hxx"
 #include <sodium.h>
@@ -14,6 +15,7 @@
 #include "routes/send_message_route.hxx"
 #include "routes/chats_route.hxx"
 #include "routes/user_info_route.hxx"
+#include "routes/user_update_info_route.hxx"
 #include "routes/ws_route.hxx"
 #include "websocket_controller.hxx"
 
@@ -37,6 +39,7 @@ Server::Server() :
     .origin("*")
     .methods(
         crow::HTTPMethod::Get,
+        crow::HTTPMethod::Patch,
         crow::HTTPMethod::Post,
         crow::HTTPMethod::Put,
         crow::HTTPMethod::Delete,
@@ -69,6 +72,7 @@ void Server::setupRoutes()
   routeManager.addRoute<InsertMemberRoute>();
   routeManager.addRoute<DeleteMessageRoute>();
   routeManager.addRoute<UserInfoRoute>();
+  routeManager.addRoute<UserUpdateInfoRoute>();
 
   routeManager.setupRoutes();
 }

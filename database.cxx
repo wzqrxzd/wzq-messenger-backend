@@ -118,5 +118,15 @@ Database::dbConnection Database::prepareDB(Database::dbConnection conn)
       "SELECT chat_id FROM chat_members WHERE user_id IN ($1, $2) GROUP BY chat_id HAVING COUNT(DISTINCT user_id) = 2"
   );
 
+  conn->prepare(
+      "change_user_info",
+      "UPDATE users "
+      "SET "
+      " username = COALESCE($2, username), "
+      " name = COALESCE($3, name), "
+      " description = COALESCE($4, description) "
+      "WHERE id = $1"
+  );
+
   return conn;
 }
