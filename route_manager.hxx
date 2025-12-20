@@ -18,6 +18,7 @@ concept WsConcept = requires(T t) {
 class RouteManager {
   public:
     explicit RouteManager(crow::App<crow::CORSHandler>& app, AuthService& auth, Database& db);
+    ~RouteManager() noexcept;
     void setupRoutes();
     template <RouteConcept T>
     void addRoute() {
@@ -29,7 +30,7 @@ class RouteManager {
         ptr = new T(app, auth, db);
       }
 
-      routes.push_back(std::move(ptr));
+      routes.push_back(ptr);
     };
   private:
     crow::App<crow::CORSHandler>& app;

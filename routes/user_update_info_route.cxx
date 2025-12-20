@@ -9,39 +9,55 @@ UserUpdateInfoRoute::UserUpdateInfoRoute(crow::App<crow::CORSHandler>& app, Webs
 
 void UserUpdateInfoRoute::setup()
 {
-  CROW_ROUTE(app, "/user/<int>").methods(crow::HTTPMethod::PATCH)([this](const crow::request& req, int userId){
+  CROW_ROUTE(app, "/user/<int>").methods(crow::HTTPMethod::PATCH)([this](const crow::request& req, int expectedUserId){
     return trySafe([&](){
-        if (!auth.authorizeRequest(req))
-          throw AuthException(AuthError::TokenExpired);
+        const std::string username = auth.authorize(req);
+        const UserFields updatedFields = parseRequest(req);
 
-        std::string token = req.get_header_value("Authorization").substr(7);
-        std::string username = auth.getUsernameFromToken(token);
+        ensureOwner(username, expectedUserId);
+        changeUserData(updatedFields, expectedUserId);
 
-        auto body = crow::json::load(req.body);
-
-        std::unordered_map<std::string, std::optional<std::string>> userInfoMap;
-
-        userInfoMap["name"] = getOptionalJsonField<std::string>(body, "name");
-        userInfoMap["username"] = getOptionalJsonField<std::string>(body, "username");
-        userInfoMap["description"] = getOptionalJsonField<std::string>(body, "description");
-
-        ConnectionGuard DB(dbHandle);
-        pqxx::work W(DB.get());
-
-        pqxx::result R = W.exec_prepared("get_username_by_id", userId);
-
-        if (R[0]["username"].as<std::string>()!=username)
-          throw AuthException(AuthError::PermissionDenied);
-
-        W.exec_prepared("change_user_info",
-            userId,
-            userInfoMap["username"] ? userInfoMap["username"].value().c_str() : nullptr,
-            userInfoMap["name"] ? userInfoMap["name"].value().c_str() : nullptr,
-            userInfoMap["description"] ? userInfoMap["description"].value().c_str() : nullptr);
-        
-        W.commit();
-
-        return json_response(200, R"({"status":"success"})");
+        return crow::response(204);
     });
   });
+}
+
+UserFields UserUpdateInfoRoute::parseRequest(const crow::request& req)
+{
+  auto body = crow::json::load(req.body);
+  UserFields updatedFields;
+
+  updatedFields.name = getOptionalJsonField<std::string>(body, "name");
+  updatedFields.username = getOptionalJsonField<std::string>(body, "username");
+  updatedFields.description = getOptionalJsonField<std::string>(body, "description");
+
+  return updatedFields;
+}
+
+void UserUpdateInfoRoute::ensureOwner(const std::string& username, const int& userId){
+    ConnectionGuard DB(dbHandle);
+    pqxx::work worker(DB.get());
+
+    pqxx::result result = worker.exec_prepared("get_username_by_id", userId);
+    const std::string expectedUsername = result[0]["username"].as<std::string>();
+
+    if (expectedUsername!=username)
+      throw AuthException(AuthError::PermissionDenied);
+
+    worker.commit();
+}
+
+
+void UserUpdateInfoRoute::changeUserData(const UserFields& updatedFields, const int& userId)
+{
+  ConnectionGuard DB(dbHandle);
+  pqxx::work worker(DB.get());
+
+  worker.exec_prepared("change_user_info",
+      userId,
+      updatedFields.username ? updatedFields.username.value().c_str() : nullptr,
+      updatedFields.username ? updatedFields.username.value().c_str() : nullptr,
+      updatedFields.description ? updatedFields.description.value().c_str() : nullptr);
+
+  worker.commit();
 }

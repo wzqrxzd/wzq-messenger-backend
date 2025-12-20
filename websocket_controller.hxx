@@ -4,6 +4,7 @@
 #include "auth_service.hxx"
 #include "crow.h"
 #include "database.hxx"
+#include "types/Message.hxx"
 #include <functional>
 #include <memory>
 #include <nlohmann/json_fwd.hpp>
@@ -15,7 +16,7 @@ class WebsocketController {
   public:
     explicit WebsocketController();
 
-    void notifyNewMessage(const int& chatId, const int& messageId, const int& senderId, const std::string& senderName, const std::string& content);
+    void notifyNewMessage(const Message& message);
     void notifyNewChat(const int& chatId, const int& userId, const std::string& chatName);
     void notifyDeleteChat(const int& chatId, const int& userId);
 

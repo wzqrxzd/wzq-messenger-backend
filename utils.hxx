@@ -25,6 +25,11 @@ inline crow::response json_response(int code, const nlohmann::json& body) {
     return res;
 }
 
+inline std::string getTokenFromRequest(const crow::request& req)
+{
+  return req.get_header_value("Authorization").substr(7);
+}
+
 template <typename Func>
 crow::response trySafe(Func f)
 {

@@ -9,3 +9,11 @@ void RouteManager::setupRoutes()
     route->setup();
   }
 }
+
+RouteManager::~RouteManager() noexcept
+{
+  for (const auto& route : routes)
+  {
+    delete route;
+  }
+}

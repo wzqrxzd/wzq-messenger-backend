@@ -4,21 +4,21 @@
 
 WebsocketController::WebsocketController() {}
 
-void WebsocketController::notifyNewMessage(const int& chatId, const int& messageId, const int& senderId, const std::string& senderName, const std::string& content)
+void WebsocketController::notifyNewMessage(const Message& message)
 {
   nlohmann::json notify = {
       {"type", "new_message"},
-      {"chat_id", chatId},
-      {"message_id", messageId},
-      {"sender_id", senderId},
-      {"sender_name", senderName},
-      {"content", content}
+      {"chat_id", message.chatId},
+      {"message_id", message.messageId},
+      {"sender_id", message.senderId},
+      {"sender_name", message.username},
+      {"content", message.content}
   };
 
   std::lock_guard<std::mutex> lock(mtx);
-  spdlog::info("cahtId {} message {}", chatId, content);
+  spdlog::info("cahtId {} message {}", message.chatId, message.content);
   for (auto& client : wsClients) {
-    if (client->chatIds.count(chatId)) {
+    if (client->chatIds.count(message.chatId)) {
       client->conn->send_text(notify.dump());
     }
   }
@@ -60,3 +60,4 @@ void WebsocketController::notifyDeleteChat(const int& chatId, const int& userId)
     }
   }
 }
+

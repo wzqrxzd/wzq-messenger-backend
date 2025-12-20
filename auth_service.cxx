@@ -2,6 +2,7 @@
 #include <sodium.h>
 #include "env_utils.hxx"
 #include "jwt-cpp/jwt.h"
+#include "utils.hxx"
 #include <argon2.h>
 #include <spdlog/spdlog.h>
 
@@ -78,4 +79,16 @@ std::string AuthService::getUsernameFromToken(const std::string& token)
 {
   auto decoded = jwt::decode(token);
   return decoded.get_payload_claim("user").as_string();
+}
+
+
+std::string AuthService::authorize(const crow::request& req)
+{
+  if (!authorizeRequest(req))
+    throw AuthException(AuthError::TokenExpired);
+
+  std::string token = getTokenFromRequest(req);
+  std::string username = getUsernameFromToken(token);
+
+  return username;
 }

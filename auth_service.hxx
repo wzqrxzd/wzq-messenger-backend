@@ -11,6 +11,8 @@ class AuthService {
     bool verifyPassword(const std::string& hash, const std::string& password);
     std::string hashPassword(const std::string& password);
 
+    std::string authorize(const crow::request& req);
+
     bool authorizeRequest(const crow::request& req);
     std::string generateJWT(const std::string& username);
     std::string getUsernameFromToken(const std::string& token);
