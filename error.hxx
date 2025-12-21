@@ -14,12 +14,14 @@ enum class AuthError {
   TokenExpired,
   InvalidCredentials,
   PermissionDenied,
+  UserAlreadyExist
 };
 
 static const std::unordered_map<AuthError, std::string> ErrorCodes {
   {AuthError::TokenExpired, "Token expired"},
   {AuthError::InvalidCredentials, "Invalid credentials"},
-  {AuthError::PermissionDenied, "Permission denied"}
+  {AuthError::PermissionDenied, "Permission denied"},
+  {AuthError::UserAlreadyExist, "User already exist."}
 };
 
 class BaseException : public std::exception {
