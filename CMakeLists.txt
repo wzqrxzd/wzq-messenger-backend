@@ -6,7 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(LIBS ${CMAKE_SOURCE_DIR}/libs)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
-add_compile_options(-Wdeprecated-declarations)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -37,6 +36,8 @@ add_executable(wzq-message-server
   websocket_controller.cxx
   ${ROUTES_SRC}
 )
+
+target_compile_options(wzq-message-server PRIVATE -Wno-deprecated-declarations)
 
 target_include_directories(wzq-message-server PRIVATE ${CMAKE_SOURCE_DIR} ${LIBS}/crow/include/ ${LIBS}/jwt-cpp/include/ ${PostgreSQL_INCLUDE_DIRS} ${LIBSODIUM_INCLUDE_DIR})
 
